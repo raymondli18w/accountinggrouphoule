@@ -127,7 +127,7 @@ if uploaded_file:
 
         # === Company Info ===
         y = txt(50, y, "18 Wheels Logistics Limited Partnership", 10)
-        y = txt50, y, "Phone: 604-439-8938", 9)
+        y = txt(50, y, "Phone: 604-439-8938", 9)
         y = txt(50, y, "Email: receivable@18wheels.ca", 9)
         y -= 15
 
