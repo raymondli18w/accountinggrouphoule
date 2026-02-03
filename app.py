@@ -24,6 +24,18 @@ if uploaded_file:
         st.error("❌ Only Client = 'HE01' (Houle Electric Ltd) is allowed.")
         st.stop()
 
+    # CRITICAL: Validate new required column exists
+    if "Header Reference 2" not in df.columns:
+        st.error("❌ Missing required column: 'Header Reference 2'. "
+                 "This column is now used for PO grouping per management directive. "
+                 "Please verify your Excel file contains this column header exactly.")
+        st.stop()
+    
+    # Optional but recommended: Validate Billing Ref exists
+    if "Billing Ref" not in df.columns:
+        st.error("❌ Missing required column: 'Billing Ref' (used for document grouping).")
+        st.stop()
+
     # Date inputs side by side
     col1, col2 = st.columns(2)
     with col1:
@@ -39,11 +51,13 @@ if uploaded_file:
 
     invoice_no = df_clean["Invoice"].iloc[0] if "Invoice" in df_clean.columns else "N/A"
 
-    # Group data
+    # === GROUPING UPDATED: Now uses "Header Reference 2" ===
     po_groups = {}
     for _, row in df_clean.iterrows():
-        po = str(row["Header ref"]) if pd.notna(row["Header ref"]) else "UNSPECIFIED"
+        # PRIMARY CHANGE: Use "Header Reference 2" for outer grouping (PO level)
+        po = str(row["Header Reference 2"]) if pd.notna(row["Header Reference 2"]) else "UNSPECIFIED"
         doc = str(row["Billing Ref"]) if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
+        
         if po not in po_groups:
             po_groups[po] = {}
         if doc not in po_groups[po]:
@@ -58,7 +72,7 @@ if uploaded_file:
             "Date": pd.to_datetime(row["Activity Date"]).strftime("%m/%d/%Y")
         })
 
-    # Totals
+    # Totals (unchanged)
     grand_subtotal = df_clean["Charge Amount"].sum()
     gst_rate = 0.05
     gst_amount = grand_subtotal * gst_rate
@@ -89,13 +103,13 @@ if uploaded_file:
         else:
             y -= 20
 
-        # === Company Info (INDENTED to x=50) ===
+        # === Company Info ===
         y = txt(50, y, "18 Wheels Logistics Limited Partnership", 10)
         y = txt(50, y, "Phone: 604-439-8938", 9)
         y = txt(50, y, "Email: receivable@18wheels.ca", 9)
         y -= 15
 
-        # === Invoice Header (right-aligned) ===
+        # === Invoice Header ===
         txt(width - 150, y + 25, "INVOICE", 12)
         txt(width - 150, y + 10, f"Invoice No. {invoice_no}", 10)
         txt(width - 150, y - 5, f"Invoice Date: {inv_date.strftime('%m/%d/%Y')}", 9)
@@ -115,7 +129,7 @@ if uploaded_file:
         y = txt(50, y, "8335 Meadow Ave, Burnaby, BC V3N 2W1 Canada", 9)
         y -= 30
 
-        # === Global Subtotals (no commas!) ===
+        # === Global Subtotals ===
         y = txt(50, y, "Subtotals by Service", 10)
         y -= 10
 
@@ -128,7 +142,6 @@ if uploaded_file:
             global_service[key]["amt"] += float(row["Charge Amount"])
 
         for (code, desc, unit), v in global_service.items():
-            # ❌ NO COMMAS: use plain float formatting
             line = f"{code} – {desc} – {int(v['qty'])} {unit} – ${v['amt']:.2f}"
             y = txt(50, y, line, 9)
             y -= 14
@@ -137,9 +150,9 @@ if uploaded_file:
                 page_num += 1
                 y = height - 50
 
-        # === PO & Job Breakdown ===
+        # === PO & Job Breakdown (NOW GROUPED BY HEADER REFERENCE 2) ===
         y -= 20
-        for po, docs in po_groups.items():
+        for po, docs in po_groups.items():  # 'po' now holds Header Reference 2 values
             if y < 150:
                 c.showPage()
                 page_num += 1
@@ -148,7 +161,7 @@ if uploaded_file:
                 txt(width - 150, y, "INVOICE", 12)
                 y -= 80
 
-            # PO Summary
+            # PO Summary (shows Header Reference 2 value)
             po_service = {}
             all_lines = [line for lines in docs.values() for line in lines]
             for line in all_lines:
@@ -157,7 +170,8 @@ if uploaded_file:
                 po_service[key]["qty"] += line["Qty"]
                 po_service[key]["amt"] += line["Amount"]
 
-            y = txt(50, y, f"PO# {po} Summary", 10)
+            # DISPLAYS HEADER REFERENCE 2 VALUE HERE (critical requirement)
+            y = txt(50, y, f"PO# {po} Summary", 10)  # Label kept as "PO#" per "rest stay same" requirement
             y -= 5
             for (code, desc, unit), v in po_service.items():
                 line = f"  {code} – {desc} – {v['qty']} {unit} – ${v['amt']:.2f}"
@@ -194,26 +208,27 @@ if uploaded_file:
                 y -= 12
                 c.setFont("Helvetica", 9)
 
-                # Table rows (no commas!)
+                # Table rows
                 for line in lines:
                     c.drawString(50, y, str(line["Service Code"]))
                     c.drawString(120, y, str(line["Description"]))
                     c.drawString(250, y, str(line["Qty"]))
                     c.drawString(300, y, str(line["Unit"]))
                     c.drawString(350, y, f"{line['Rate']:.2f}")
-                    c.drawString(420, y, f"{line['Amount']:.2f}")  # ← no comma
+                    c.drawString(420, y, f"{line['Amount']:.2f}")
                     y -= 12
                     if y < 100:
                         break
 
                 y -= 5
                 c.setFont("Helvetica", 8)
+                # CRITICAL: Shows Header Reference 2 value in document footer (as "PO#")
                 c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po}")
                 y -= 15
 
                 doc_total = sum(l["Amount"] for l in lines)
                 c.setFont("Helvetica-Bold", 9)
-                c.drawString(400, y, f"Subtotal: ${doc_total:.2f}")  # ← no comma
+                c.drawString(400, y, f"Subtotal: ${doc_total:.2f}")
                 y -= 25
 
                 # Draw box
@@ -225,7 +240,7 @@ if uploaded_file:
 
             po_total = sum(sum(l["Amount"] for l in lines) for lines in docs.values())
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(400, y, f"PO# Total: ${po_total:.2f}")  # ← no comma
+            c.drawString(400, y, f"PO# Total: ${po_total:.2f}")  # Shows total for this Header Reference 2 group
             y -= 40
 
         # === Grand Totals ===
