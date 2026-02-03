@@ -3,7 +3,7 @@ import pandas as pd
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import os
 
@@ -24,46 +24,49 @@ if uploaded_file:
         st.error("❌ Only Client = 'HE01' (Houle Electric Ltd) is allowed.")
         st.stop()
 
-    # === FLEXIBLE COLUMN DETECTION: Accept either "Header Reference 2" OR "Header User 2" ===
-    # Normalize column names for case-insensitive matching
-    normalized_cols = {col.strip().lower(): col for col in df.columns}
+    # === ROBUST COLUMN DETECTION: Accept "Header Reference 2" OR "Header User 2" (case-insensitive, space-tolerant) ===
+    # Normalize all column names for flexible matching
+    col_map = {col.strip().lower().replace(" ", ""): col for col in df.columns}
     
     po_group_col = None
     po_group_col_display = None
     
-    # Check for both variants (case-insensitive)
-    if "header reference 2" in normalized_cols:
-        po_group_col = normalized_cols["header reference 2"]
+    # Check variants (normalize to "headerreference2" or "headeruser2")
+    if "headerreference2" in col_map:
+        po_group_col = col_map["headerreference2"]
         po_group_col_display = "Header Reference 2"
-    elif "header user 2" in normalized_cols:
-        po_group_col = normalized_cols["header user 2"]
+    elif "headeruser2" in col_map:
+        po_group_col = col_map["headeruser2"]
         po_group_col_display = "Header User 2"
     
     if po_group_col is None:
+        # Show available columns with normalized names for debugging
+        available = "\n- ".join([f"`{col}` → normalized: `{col.strip().lower().replace(' ', '')}`" for col in df.columns])
         st.error(
             "❌ Missing required grouping column. "
-            "Please ensure your Excel file contains **either**:\n"
+            "Your file must contain **either**:\n"
             "- `Header Reference 2`  **OR**\n"
             "- `Header User 2`\n\n"
-            "These columns are used for PO grouping per management directive. "
-            f"Available columns in your file: {', '.join(df.columns.tolist())}"
+            f"Available columns in your file:\n- {available}"
         )
         st.stop()
     
-    # Show which column was detected (user feedback)
-    st.success(f"✓ Grouping by column: **{po_group_col_display}** (`{po_group_col}`)")
+    # Show which column was detected
+    st.success(f"✓ Grouping invoices by: **{po_group_col_display}** (column name in file: `{po_group_col}`)")
 
     # Validate Billing Ref exists
     if "Billing Ref" not in df.columns:
         st.error("❌ Missing required column: 'Billing Ref' (used for document grouping).")
         st.stop()
 
-    # Date inputs side by side
+    # Date inputs side by side - FIXED: Use timedelta instead of .replace(day=30)
     col1, col2 = st.columns(2)
     with col1:
         inv_date = st.date_input("📅 Invoice Date", value=datetime.today())
     with col2:
-        due_date = st.date_input("📅 Due Date", value=datetime.today().replace(day=30))
+        # SAFE DEFAULT: 30 days from today (works in all months)
+        default_due_date = datetime.today() + timedelta(days=30)
+        due_date = st.date_input("📅 Due Date", value=default_due_date)
 
     # Clean data
     df_clean = df[pd.to_numeric(df["Charge Amount"], errors="coerce").notnull()].copy()
@@ -71,14 +74,18 @@ if uploaded_file:
     df_clean["Charge Qty"] = pd.to_numeric(df_clean["Charge Qty"])
     df_clean = df_clean[df_clean["Charge Amount"] > 0]
 
+    if df_clean.empty:
+        st.error("❌ No valid charge records found (all amounts zero or non-numeric).")
+        st.stop()
+
     invoice_no = df_clean["Invoice"].iloc[0] if "Invoice" in df_clean.columns else "N/A"
 
     # === GROUPING: Uses detected column (Header Reference 2 OR Header User 2) ===
     po_groups = {}
     for _, row in df_clean.iterrows():
         # Use the detected column for PO-level grouping
-        po = str(row[po_group_col]) if pd.notna(row[po_group_col]) else "UNSPECIFIED"
-        doc = str(row["Billing Ref"]) if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
+        po = str(row[po_group_col]).strip() if pd.notna(row[po_group_col]) else "UNSPECIFIED"
+        doc = str(row["Billing Ref"]).strip() if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
         
         if po not in po_groups:
             po_groups[po] = {}
@@ -91,10 +98,10 @@ if uploaded_file:
             "Unit": row["Charge Unit"],
             "Rate": row["Rate"],
             "Amount": row["Charge Amount"],
-            "Date": pd.to_datetime(row["Activity Date"]).strftime("%m/%d/%Y")
+            "Date": pd.to_datetime(row["Activity Date"]).strftime("%m/%d/%Y") if pd.notna(row["Activity Date"]) else "N/A"
         })
 
-    # Totals (unchanged)
+    # Totals
     grand_subtotal = df_clean["Charge Amount"].sum()
     gst_rate = 0.05
     gst_amount = grand_subtotal * gst_rate
@@ -172,7 +179,7 @@ if uploaded_file:
                 page_num += 1
                 y = height - 50
 
-        # === PO & Job Breakdown (GROUPED BY DETECTED COLUMN) ===
+        # === PO & Job Breakdown ===
         y -= 20
         for po, docs in po_groups.items():
             if y < 150:
@@ -192,7 +199,6 @@ if uploaded_file:
                 po_service[key]["qty"] += line["Qty"]
                 po_service[key]["amt"] += line["Amount"]
 
-            # DISPLAYS THE GROUP VALUE (from Header Reference 2 OR Header User 2)
             y = txt(50, y, f"PO# {po} Summary", 10)
             y -= 5
             for (code, desc, unit), v in po_service.items():
@@ -244,7 +250,6 @@ if uploaded_file:
 
                 y -= 5
                 c.setFont("Helvetica", 8)
-                # Shows the PO value (from detected column) in footer
                 c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po}")
                 y -= 15
 
@@ -285,10 +290,14 @@ if uploaded_file:
         buffer.seek(0)
         return buffer
 
-    pdf = create_pdf()
-    st.download_button(
-        "📥 Download Final Invoice PDF",
-        data=pdf,
-        file_name=f"Houle_Invoice_{invoice_no}.pdf",
-        mime="application/pdf"
-    )
+    try:
+        pdf = create_pdf()
+        st.download_button(
+            "📥 Download Final Invoice PDF",
+            data=pdf,
+            file_name=f"Houle_Invoice_{invoice_no}.pdf",
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"❌ PDF generation failed: {str(e)}")
+        st.exception(e)  # For debugging in Streamlit Cloud logs
