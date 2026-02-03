@@ -24,14 +24,12 @@ if uploaded_file:
         st.error("❌ Only Client = 'HE01' (Houle Electric Ltd) is allowed.")
         st.stop()
 
-    # === ROBUST COLUMN DETECTION: Accept "Header Reference 2" OR "Header User 2" (case-insensitive, space-tolerant) ===
-    # Normalize all column names for flexible matching
+    # === ROBUST COLUMN DETECTION: Accept "Header Reference 2" OR "Header User 2" ===
     col_map = {col.strip().lower().replace(" ", ""): col for col in df.columns}
     
     po_group_col = None
     po_group_col_display = None
     
-    # Check variants (normalize to "headerreference2" or "headeruser2")
     if "headerreference2" in col_map:
         po_group_col = col_map["headerreference2"]
         po_group_col_display = "Header Reference 2"
@@ -40,7 +38,6 @@ if uploaded_file:
         po_group_col_display = "Header User 2"
     
     if po_group_col is None:
-        # Show available columns with normalized names for debugging
         available = "\n- ".join([f"`{col}` → normalized: `{col.strip().lower().replace(' ', '')}`" for col in df.columns])
         st.error(
             "❌ Missing required grouping column. "
@@ -51,7 +48,6 @@ if uploaded_file:
         )
         st.stop()
     
-    # Show which column was detected
     st.success(f"✓ Grouping invoices by: **{po_group_col_display}** (column name in file: `{po_group_col}`)")
 
     # Validate Billing Ref exists
@@ -59,14 +55,12 @@ if uploaded_file:
         st.error("❌ Missing required column: 'Billing Ref' (used for document grouping).")
         st.stop()
 
-    # Date inputs side by side - FIXED: Use timedelta instead of .replace(day=30)
+    # Date inputs with safe defaults
     col1, col2 = st.columns(2)
     with col1:
         inv_date = st.date_input("📅 Invoice Date", value=datetime.today())
     with col2:
-        # SAFE DEFAULT: 30 days from today (works in all months)
-        default_due_date = datetime.today() + timedelta(days=30)
-        due_date = st.date_input("📅 Due Date", value=default_due_date)
+        due_date = st.date_input("📅 Due Date", value=datetime.today() + timedelta(days=30))
 
     # Clean data
     df_clean = df[pd.to_numeric(df["Charge Amount"], errors="coerce").notnull()].copy()
@@ -80,10 +74,9 @@ if uploaded_file:
 
     invoice_no = df_clean["Invoice"].iloc[0] if "Invoice" in df_clean.columns else "N/A"
 
-    # === GROUPING: Uses detected column (Header Reference 2 OR Header User 2) ===
+    # === GROUPING: Uses detected column ===
     po_groups = {}
     for _, row in df_clean.iterrows():
-        # Use the detected column for PO-level grouping
         po = str(row[po_group_col]).strip() if pd.notna(row[po_group_col]) else "UNSPECIFIED"
         doc = str(row["Billing Ref"]).strip() if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
         
@@ -134,7 +127,7 @@ if uploaded_file:
 
         # === Company Info ===
         y = txt(50, y, "18 Wheels Logistics Limited Partnership", 10)
-        y = txt(50, y, "Phone: 604-439-8938", 9)
+        y = txt50, y, "Phone: 604-439-8938", 9)
         y = txt(50, y, "Email: receivable@18wheels.ca", 9)
         y -= 15
 
@@ -236,15 +229,54 @@ if uploaded_file:
                 y -= 12
                 c.setFont("Helvetica", 9)
 
-                # Table rows
+                # === FIXED: Description line wrapping logic ===
+                # Helper function to split description into 35-char lines
+                def wrap_text(text, max_chars=35):
+                    if len(text) <= max_chars:
+                        return [text]
+                    
+                    # Split at word boundaries when possible
+                    words = text.split()
+                    lines = []
+                    current_line = ""
+                    
+                    for word in words:
+                        if len(current_line) + len(word) + 1 <= max_chars:
+                            if current_line:
+                                current_line += " " + word
+                            else:
+                                current_line = word
+                        else:
+                            lines.append(current_line)
+                            current_line = word
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    # If still too long (single long word), force split
+                    if len(lines) == 1 and len(lines[0]) > max_chars:
+                        lines = [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+                    
+                    return lines
+
+                # Draw table rows with wrapped descriptions
                 for line in lines:
+                    # Get wrapped description lines
+                    desc_lines = wrap_text(line["Description"], 35)
+                    num_lines = len(desc_lines)
+                    
+                    # Draw non-description fields (only once)
                     c.drawString(50, y, str(line["Service Code"]))
-                    c.drawString(120, y, str(line["Description"]))
                     c.drawString(250, y, str(line["Qty"]))
                     c.drawString(300, y, str(line["Unit"]))
                     c.drawString(350, y, f"{line['Rate']:.2f}")
                     c.drawString(420, y, f"{line['Amount']:.2f}")
-                    y -= 12
+                    
+                    # Draw each line of description
+                    for i, desc_line in enumerate(desc_lines):
+                        c.drawString(120, y - (i * 12), desc_line)
+                    
+                    # Adjust y position based on description lines
+                    y -= (num_lines * 12)
                     if y < 100:
                         break
 
@@ -300,4 +332,4 @@ if uploaded_file:
         )
     except Exception as e:
         st.error(f"❌ PDF generation failed: {str(e)}")
-        st.exception(e)  # For debugging in Streamlit Cloud logs
+        st.exception(e)
