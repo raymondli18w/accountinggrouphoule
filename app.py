@@ -287,7 +287,9 @@ if uploaded_file:
 
                 y -= 5
                 c.setFont("Helvetica", 8)
-                c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po}")
+                # === FIXED: Added Header Reference to footer ===
+                # Format: "Job#: {doc} | Date: {date} | PO#: {po} | Header Reference: {po}"
+                c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po} | Header Reference: {po}")
                 y -= 15
 
                 doc_total = sum(l["Amount"] for l in lines)
