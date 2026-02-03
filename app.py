@@ -24,7 +24,7 @@ if uploaded_file:
         st.error("❌ Only Client = 'HE01' (Houle Electric Ltd) is allowed.")
         st.stop()
 
-    # === ROBUST COLUMN DETECTION: Accept "Header Reference 2" OR "Header User 2" ===
+    # === COLUMN DETECTION 1: Grouping column (Header Reference 2 OR Header User 2) ===
     col_map = {col.strip().lower().replace(" ", ""): col for col in df.columns}
     
     po_group_col = None
@@ -50,6 +50,25 @@ if uploaded_file:
     
     st.success(f"✓ Grouping invoices by: **{po_group_col_display}** (column name in file: `{po_group_col}`)")
 
+    # === COLUMN DETECTION 2: Header Reference column for display (Header Reference OR Header Ref) ===
+    header_ref_col = None
+    header_ref_col_display = None
+    
+    # Normalize column names for flexible matching (case-insensitive, space-tolerant)
+    for col in df.columns:
+        norm = col.strip().lower().replace(" ", "")
+        if norm == "headerreference" or norm == "headerref":
+            header_ref_col = col
+            header_ref_col_display = col
+            break
+    
+    if header_ref_col is None:
+        st.warning(
+            "⚠️ Warning: Column 'Header Reference' or 'Header Ref' not found. "
+            "The footer will show 'N/A' for Header Reference values. "
+            f"Available columns: {', '.join(df.columns.tolist())}"
+        )
+
     # Validate Billing Ref exists
     if "Billing Ref" not in df.columns:
         st.error("❌ Missing required column: 'Billing Ref' (used for document grouping).")
@@ -74,11 +93,17 @@ if uploaded_file:
 
     invoice_no = df_clean["Invoice"].iloc[0] if "Invoice" in df_clean.columns else "N/A"
 
-    # === GROUPING: Uses detected column ===
+    # === GROUPING: Uses detected grouping column (Header Reference 2 / Header User 2) ===
+    # BUT also captures Header Reference value for display in footer
     po_groups = {}
     for _, row in df_clean.iterrows():
         po = str(row[po_group_col]).strip() if pd.notna(row[po_group_col]) else "UNSPECIFIED"
         doc = str(row["Billing Ref"]).strip() if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
+        
+        # Capture Header Reference value for display (if column exists)
+        header_ref_val = "N/A"
+        if header_ref_col and header_ref_col in df.columns and pd.notna(row[header_ref_col]):
+            header_ref_val = str(row[header_ref_col]).strip()
         
         if po not in po_groups:
             po_groups[po] = {}
@@ -91,7 +116,8 @@ if uploaded_file:
             "Unit": row["Charge Unit"],
             "Rate": row["Rate"],
             "Amount": row["Charge Amount"],
-            "Date": pd.to_datetime(row["Activity Date"]).strftime("%m/%d/%Y") if pd.notna(row["Activity Date"]) else "N/A"
+            "Date": pd.to_datetime(row["Activity Date"]).strftime("%m/%d/%Y") if pd.notna(row["Activity Date"]) else "N/A",
+            "Header_Reference_Display": header_ref_val  # Store for footer display
         })
 
     # Totals
@@ -234,13 +260,11 @@ if uploaded_file:
                 y -= 12
                 c.setFont("Helvetica", 9)
 
-                # === FIXED: Description line wrapping logic ===
-                # Helper function to split description into 35-char lines
+                # === Description line wrapping logic ===
                 def wrap_text(text, max_chars=35):
                     if len(text) <= max_chars:
                         return [text]
                     
-                    # Split at word boundaries when possible
                     words = text.split()
                     lines = []
                     current_line = ""
@@ -257,7 +281,6 @@ if uploaded_file:
                     if current_line:
                         lines.append(current_line)
                     
-                    # If still too long (single long word), force split
                     if len(lines) == 1 and len(lines[0]) > max_chars:
                         lines = [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
                     
@@ -265,31 +288,27 @@ if uploaded_file:
 
                 # Draw table rows with wrapped descriptions
                 for line in lines:
-                    # Get wrapped description lines
                     desc_lines = wrap_text(line["Description"], 35)
                     num_lines = len(desc_lines)
                     
-                    # Draw non-description fields (only once)
                     c.drawString(50, y, str(line["Service Code"]))
                     c.drawString(250, y, str(line["Qty"]))
                     c.drawString(300, y, str(line["Unit"]))
                     c.drawString(350, y, f"{line['Rate']:.2f}")
                     c.drawString(420, y, f"{line['Amount']:.2f}")
                     
-                    # Draw each line of description
                     for i, desc_line in enumerate(desc_lines):
                         c.drawString(120, y - (i * 12), desc_line)
                     
-                    # Adjust y position based on description lines
                     y -= (num_lines * 12)
                     if y < 100:
                         break
 
                 y -= 5
                 c.setFont("Helvetica", 8)
-                # === FIXED: Added Header Reference to footer ===
-                # Format: "Job#: {doc} | Date: {date} | PO#: {po} | Header Reference: {po}"
-                c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po} | Header Reference: {po}")
+                # === FIXED: Show ACTUAL Header Reference value from sheet ===
+                header_ref_display = lines[0]["Header_Reference_Display"]
+                c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po} | Header Reference: {header_ref_display}")
                 y -= 15
 
                 doc_total = sum(l["Amount"] for l in lines)
