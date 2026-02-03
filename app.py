@@ -24,14 +24,36 @@ if uploaded_file:
         st.error("❌ Only Client = 'HE01' (Houle Electric Ltd) is allowed.")
         st.stop()
 
-    # CRITICAL: Validate new required column exists
-    if "Header Reference 2" not in df.columns:
-        st.error("❌ Missing required column: 'Header Reference 2'. "
-                 "This column is now used for PO grouping per management directive. "
-                 "Please verify your Excel file contains this column header exactly.")
+    # === FLEXIBLE COLUMN DETECTION: Accept either "Header Reference 2" OR "Header User 2" ===
+    # Normalize column names for case-insensitive matching
+    normalized_cols = {col.strip().lower(): col for col in df.columns}
+    
+    po_group_col = None
+    po_group_col_display = None
+    
+    # Check for both variants (case-insensitive)
+    if "header reference 2" in normalized_cols:
+        po_group_col = normalized_cols["header reference 2"]
+        po_group_col_display = "Header Reference 2"
+    elif "header user 2" in normalized_cols:
+        po_group_col = normalized_cols["header user 2"]
+        po_group_col_display = "Header User 2"
+    
+    if po_group_col is None:
+        st.error(
+            "❌ Missing required grouping column. "
+            "Please ensure your Excel file contains **either**:\n"
+            "- `Header Reference 2`  **OR**\n"
+            "- `Header User 2`\n\n"
+            "These columns are used for PO grouping per management directive. "
+            f"Available columns in your file: {', '.join(df.columns.tolist())}"
+        )
         st.stop()
     
-    # Optional but recommended: Validate Billing Ref exists
+    # Show which column was detected (user feedback)
+    st.success(f"✓ Grouping by column: **{po_group_col_display}** (`{po_group_col}`)")
+
+    # Validate Billing Ref exists
     if "Billing Ref" not in df.columns:
         st.error("❌ Missing required column: 'Billing Ref' (used for document grouping).")
         st.stop()
@@ -51,11 +73,11 @@ if uploaded_file:
 
     invoice_no = df_clean["Invoice"].iloc[0] if "Invoice" in df_clean.columns else "N/A"
 
-    # === GROUPING UPDATED: Now uses "Header Reference 2" ===
+    # === GROUPING: Uses detected column (Header Reference 2 OR Header User 2) ===
     po_groups = {}
     for _, row in df_clean.iterrows():
-        # PRIMARY CHANGE: Use "Header Reference 2" for outer grouping (PO level)
-        po = str(row["Header Reference 2"]) if pd.notna(row["Header Reference 2"]) else "UNSPECIFIED"
+        # Use the detected column for PO-level grouping
+        po = str(row[po_group_col]) if pd.notna(row[po_group_col]) else "UNSPECIFIED"
         doc = str(row["Billing Ref"]) if pd.notna(row["Billing Ref"]) else "UNSPECIFIED"
         
         if po not in po_groups:
@@ -150,9 +172,9 @@ if uploaded_file:
                 page_num += 1
                 y = height - 50
 
-        # === PO & Job Breakdown (NOW GROUPED BY HEADER REFERENCE 2) ===
+        # === PO & Job Breakdown (GROUPED BY DETECTED COLUMN) ===
         y -= 20
-        for po, docs in po_groups.items():  # 'po' now holds Header Reference 2 values
+        for po, docs in po_groups.items():
             if y < 150:
                 c.showPage()
                 page_num += 1
@@ -161,7 +183,7 @@ if uploaded_file:
                 txt(width - 150, y, "INVOICE", 12)
                 y -= 80
 
-            # PO Summary (shows Header Reference 2 value)
+            # PO Summary
             po_service = {}
             all_lines = [line for lines in docs.values() for line in lines]
             for line in all_lines:
@@ -170,8 +192,8 @@ if uploaded_file:
                 po_service[key]["qty"] += line["Qty"]
                 po_service[key]["amt"] += line["Amount"]
 
-            # DISPLAYS HEADER REFERENCE 2 VALUE HERE (critical requirement)
-            y = txt(50, y, f"PO# {po} Summary", 10)  # Label kept as "PO#" per "rest stay same" requirement
+            # DISPLAYS THE GROUP VALUE (from Header Reference 2 OR Header User 2)
+            y = txt(50, y, f"PO# {po} Summary", 10)
             y -= 5
             for (code, desc, unit), v in po_service.items():
                 line = f"  {code} – {desc} – {v['qty']} {unit} – ${v['amt']:.2f}"
@@ -222,7 +244,7 @@ if uploaded_file:
 
                 y -= 5
                 c.setFont("Helvetica", 8)
-                # CRITICAL: Shows Header Reference 2 value in document footer (as "PO#")
+                # Shows the PO value (from detected column) in footer
                 c.drawString(50, y, f"Job#: {doc} | Date: {lines[0]['Date']} | PO#: {po}")
                 y -= 15
 
@@ -240,7 +262,7 @@ if uploaded_file:
 
             po_total = sum(sum(l["Amount"] for l in lines) for lines in docs.values())
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(400, y, f"PO# Total: ${po_total:.2f}")  # Shows total for this Header Reference 2 group
+            c.drawString(400, y, f"PO# Total: ${po_total:.2f}")
             y -= 40
 
         # === Grand Totals ===
