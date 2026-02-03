@@ -183,7 +183,7 @@ if uploaded_file:
                 txt(width - 150, y, "INVOICE", 12)
                 y -= 80
 
-            # PO Summary
+            # PO Summary - BOLDED FOR VISIBILITY
             po_service = {}
             all_lines = [line for lines in docs.values() for line in lines]
             for line in all_lines:
@@ -192,12 +192,17 @@ if uploaded_file:
                 po_service[key]["qty"] += line["Qty"]
                 po_service[key]["amt"] += line["Amount"]
 
-            y = txt(50, y, f"PO# {po} Summary", 10)
-            y -= 5
+            # BOLD: Summary header
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(50, y, f"PO# {po} Summary")
+            y -= 18
+            
+            # BOLD: Each summary line with amounts
             for (code, desc, unit), v in po_service.items():
                 line = f"  {code} – {desc} – {v['qty']} {unit} – ${v['amt']:.2f}"
-                y = txt(50, y, line, 9)
-                y -= 12
+                c.setFont("Helvetica-Bold", 9)
+                c.drawString(50, y, line)
+                y -= 14
                 if y < 150:
                     c.showPage()
                     page_num += 1
@@ -298,7 +303,7 @@ if uploaded_file:
                 c.setStrokeColorRGB(0, 0, 0)
 
             po_total = sum(sum(l["Amount"] for l in lines) for lines in docs.values())
-            c.setFont("Helvetica-Bold", 10)
+            c.setFont("Helvetica-Bold", 11)
             c.drawString(400, y, f"PO# Total: ${po_total:.2f}")
             y -= 40
 
