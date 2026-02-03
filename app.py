@@ -159,7 +159,7 @@ if uploaded_file:
 
         # === Invoice Header ===
         txt(width - 150, y + 25, "INVOICE", 12)
-        txt(width - 150, y + 10, f"Invoice No. {invoice_no}", 10)
+        txt(width - 150, y + 10, f"Invoice No.", 10)
         txt(width - 150, y - 5, f"Invoice Date: {inv_date.strftime('%m/%d/%Y')}", 9)
         txt(width - 150, y - 20, f"Due Date: {due_date.strftime('%m/%d/%Y')}", 9)
         y -= 30
@@ -353,7 +353,7 @@ if uploaded_file:
         st.download_button(
             "📥 Download Final Invoice PDF",
             data=pdf,
-            file_name=f"Houle_Invoice_{invoice_no}.pdf",
+            file_name=f"Houle_Invoice.pdf",
             mime="application/pdf"
         )
     except Exception as e:
